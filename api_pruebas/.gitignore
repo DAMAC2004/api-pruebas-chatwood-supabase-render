@@ -1,0 +1,19 @@
+# Variables de entorno — NUNCA subir al repositorio
+.env
+.env.local
+.env.production
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# IDEs
+.vscode/
+.idea/
+
+# Render / deploy
+*.log
