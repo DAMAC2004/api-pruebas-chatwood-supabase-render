@@ -15,7 +15,7 @@ TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_API_URL: str = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
 # ── Chatwoot ──────────────────────────────────────────────────────────────────
-CHATWOOT_BASE_URL: str  = os.getenv("CHATWOOT_BASE_URL", "https://app.chatwoot.com")
-CHATWOOT_API_TOKEN: str = os.getenv("CHATWOOT_API_TOKEN", "")
-CHATWOOT_ACCOUNT_ID: str = os.getenv("CHATWOOT_ACCOUNT_ID", "")
-CHATWOOT_INBOX_ID: str  = os.getenv("CHATWOOT_INBOX_ID", "")
+# Las Client APIs solo necesitan el inbox_identifier (string alfanumérico).
+# Se obtiene en: Chatwoot → Settings → Inboxes → tu inbox API → Configuration → Inbox Identifier
+CHATWOOT_BASE_URL: str = os.getenv("CHATWOOT_BASE_URL", "https://app.chatwoot.com")
+CHATWOOT_INBOX_ID: str = os.getenv("CHATWOOT_INBOX_ID", "")  # = inbox_identifier
