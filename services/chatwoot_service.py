@@ -96,3 +96,15 @@ async def escalar_a_chatwoot(
     print(f"✅ Mensaje enviado a conversación {conversation_id}")
 
     return conversation_id
+
+
+async def enviar_mensaje_a_conversacion_existente(
+    source_id: str,
+    conversation_id: int,
+    contenido: str,
+) -> dict:
+    """
+    Envía un mensaje a una conversación que ya existe en Chatwoot.
+    Se usa cuando el usuario sigue mandando mensajes después del escalado.
+    """
+    return await enviar_mensaje(source_id, conversation_id, contenido)

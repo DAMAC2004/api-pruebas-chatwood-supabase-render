@@ -10,15 +10,21 @@ router = APIRouter(tags=["Telegram"])
 @router.post("/webhook/telegram")
 async def telegram_webhook(request: Request):
     """
-    Punto de entrada principal del bot de Telegram.
+    Webhook principal de Telegram. Maneja 3 casos:
 
-    Telegram hace POST aquí cada vez que el usuario manda un mensaje.
-    IMPORTANTE: siempre debe retornar 200 OK, incluso si hay errores
-    internos, para evitar que Telegram reintente la petición en bucle.
+    CASO 1 — Sin registro: primer mensaje del usuario.
+      → Crea registro en Supabase (modo=bot)
+      → Responde "Hola soy un bot"
 
-    Flujo:
-      - Caso 1 (sin registro): crea registro → responde "Hola soy un bot"
-      - Caso 2 (con registro): cambia modo → escala a Chatwoot → avisa al usuario
+    CASO 2 — Registro en modo 'bot': segundo mensaje, escalar.
+      → Crea conversación en Chatwoot
+      → Guarda el conversation_id en Supabase
+      → Cambia modo a 'humano'
+      → Avisa al usuario
+
+    CASO 3 — Registro en modo 'humano': mensajes siguientes.
+      → Reenvía el mensaje a la conversación EXISTENTE en Chatwoot
+      → No crea nuevas conversaciones
     """
     try:
         payload = await request.json()
@@ -26,58 +32,70 @@ async def telegram_webhook(request: Request):
 
         update = TelegramUpdate(**payload)
 
-        # Ignorar actualizaciones sin mensaje de texto
         if not update.message or not update.message.text:
             print("⚠️  Update sin mensaje de texto, ignorado.")
             return Response(status_code=status.HTTP_200_OK)
 
-        chat_id   = str(update.message.chat.id)
-        texto     = update.message.text
-        username  = update.message.from_.username if update.message.from_ else "desconocido"
+        chat_id  = str(update.message.chat.id)
+        texto    = update.message.text
+        username = update.message.from_.username if update.message.from_ else "desconocido"
 
         print(f"👤 Usuario: {username} | chat_id: {chat_id} | Mensaje: {texto}")
 
-        existe = db.verificar_registro(chat_id)
+        registro = db.obtener_registro(chat_id)
 
-        # ── CASO 1: no hay registro ───────────────────────────────────────────
-        if not existe:
+        # ── CASO 1: no existe registro ────────────────────────────────────────
+        if registro is None:
             print("🆕 Caso 1: primer mensaje, creando registro...")
-
-            registro = db.crear_registro_telegram(chat_id)
-            db.crear_mensaje(registro["rmsgt_id"], texto, username)
+            nuevo = db.crear_registro_telegram(chat_id)
+            db.crear_mensaje(nuevo["rmsgt_id"], texto, username)
 
             await tg.enviar_mensaje(
                 chat_id=update.message.chat.id,
                 texto="👋 ¡Hola! Soy un bot. ¿En qué puedo ayudarte?\n\nEscríbeme otro mensaje para hablar con un agente humano.",
             )
 
-        # ── CASO 2: ya hay registro → escalar a humano ────────────────────────
-        else:
-            print("🔁 Caso 2: registro existente, escalando a humano...")
-
-            registro = db.obtener_registro(chat_id)
+        # ── CASO 2: existe registro en modo 'bot' → escalar ───────────────────
+        elif registro["rmsgt_id_modo"] == "bot":
+            print("🔁 Caso 2: modo bot, escalando a humano...")
             db.crear_mensaje(registro["rmsgt_id"], texto, username)
 
-            # Cambiar modo a humano en BD
-            db.actualizar_modo_humano(chat_id)
-
-            # Avisar al usuario
-            await tg.enviar_mensaje(
-                chat_id=update.message.chat.id,
-                texto="⏳ Tu conversación está siendo escalada a un agente humano. En breve te atenderán.",
-            )
-
-            # Escalar a Chatwoot: crea contacto → conversación → mensaje
+            # Crear contacto + conversación en Chatwoot
             conversation_id = await cw.escalar_a_chatwoot(
                 chat_id=chat_id,
                 username=username,
                 mensaje_actual=texto,
             )
+
+            # Guardar conversation_id y cambiar modo a humano
+            db.actualizar_modo_humano(chat_id, conversation_id)
             print(f"✅ Conversación creada en Chatwoot con ID: {conversation_id}")
 
+            await tg.enviar_mensaje(
+                chat_id=update.message.chat.id,
+                texto="⏳ Tu conversación está siendo escalada a un agente humano. En breve te atenderán.",
+            )
+
+        # ── CASO 3: existe registro en modo 'humano' → reenviar a Chatwoot ────
+        else:
+            print("💬 Caso 3: modo humano, reenviando a conversación existente en Chatwoot...")
+            db.crear_mensaje(registro["rmsgt_id"], texto, username)
+
+            conversation_id = registro.get("rcvs_chatwoot_conversation_id")
+            if not conversation_id:
+                print("❌ No hay conversation_id guardado, no se puede reenviar.")
+                return Response(status_code=status.HTTP_200_OK)
+
+            # Crear una nueva sesión de contacto para poder enviar el mensaje
+            source_id, _ = await cw.crear_contacto(
+                nombre=username,
+                identificador=chat_id,
+            )
+
+            await cw.enviar_mensaje(source_id, conversation_id, texto)
+            print(f"✅ Mensaje reenviado a conversación {conversation_id}")
+
     except Exception as e:
-        # Logueamos el error pero devolvemos 200 para que Telegram no reintente
         print(f"❌ Error en webhook de Telegram: {e}")
 
-    # Siempre 200 OK
     return Response(status_code=status.HTTP_200_OK)
