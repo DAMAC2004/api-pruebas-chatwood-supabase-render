@@ -33,16 +33,22 @@ def crear_registro_telegram(chat_id: str) -> dict:
     return response.data[0]
 
 
-def actualizar_modo_humano(chat_id: str, chatwoot_conversation_id: int) -> dict:
+def actualizar_modo_humano(
+    chat_id: str,
+    chatwoot_conversation_id: int,
+    chatwoot_source_id: str,
+) -> dict:
     """
-    Cambia el modo a 'humano' y guarda el conversation_id de Chatwoot.
-    Así los siguientes mensajes del usuario van a la misma conversación.
+    Cambia el modo a 'humano' y guarda el conversation_id Y el source_id
+    de Chatwoot. Ambos son necesarios para enviar mensajes a esa misma
+    conversación desde el Caso 3.
     """
     response = (
         supabase.table("registro_mensaje_telegram")
         .update({
             "rmsgt_id_modo": "humano",
             "rcvs_chatwoot_conversation_id": chatwoot_conversation_id,
+            "rcvs_chatwoot_source_id": chatwoot_source_id,
         })
         .eq("rmsgt_id_telegram_cvs", chat_id)
         .execute()

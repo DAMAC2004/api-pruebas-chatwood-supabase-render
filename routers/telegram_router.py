@@ -18,13 +18,14 @@ async def telegram_webhook(request: Request):
 
     CASO 2 — Registro en modo 'bot': segundo mensaje, escalar.
       → Crea conversación en Chatwoot
-      → Guarda el conversation_id en Supabase
+      → Guarda conversation_id Y source_id en Supabase
       → Cambia modo a 'humano'
       → Avisa al usuario
 
     CASO 3 — Registro en modo 'humano': mensajes siguientes.
-      → Reenvía el mensaje a la conversación EXISTENTE en Chatwoot
-      → No crea nuevas conversaciones
+      → Usa el source_id Y conversation_id guardados en BD
+      → Envía el mensaje a la conversación EXISTENTE en Chatwoot
+      → No crea ni nuevas sesiones ni nuevas conversaciones
     """
     try:
         payload = await request.json()
@@ -55,43 +56,39 @@ async def telegram_webhook(request: Request):
                 texto="👋 ¡Hola! Soy un bot. ¿En qué puedo ayudarte?\n\nEscríbeme otro mensaje para hablar con un agente humano.",
             )
 
-        # ── CASO 2: existe registro en modo 'bot' → escalar ───────────────────
+        # ── CASO 2: registro en modo 'bot' → escalar ──────────────────────────
         elif registro["rmsgt_id_modo"] == "bot":
             print("🔁 Caso 2: modo bot, escalando a humano...")
             db.crear_mensaje(registro["rmsgt_id"], texto, username)
 
-            # Crear contacto + conversación en Chatwoot
-            conversation_id = await cw.escalar_a_chatwoot(
+            conversation_id, source_id = await cw.escalar_a_chatwoot(
                 chat_id=chat_id,
                 username=username,
                 mensaje_actual=texto,
             )
 
-            # Guardar conversation_id y cambiar modo a humano
-            db.actualizar_modo_humano(chat_id, conversation_id)
-            print(f"✅ Conversación creada en Chatwoot con ID: {conversation_id}")
+            # Guardar AMBOS: conversation_id y source_id
+            db.actualizar_modo_humano(chat_id, conversation_id, source_id)
+            print(f"✅ Guardado en BD | conversation_id: {conversation_id} | source_id: {source_id}")
 
             await tg.enviar_mensaje(
                 chat_id=update.message.chat.id,
                 texto="⏳ Tu conversación está siendo escalada a un agente humano. En breve te atenderán.",
             )
 
-        # ── CASO 3: existe registro en modo 'humano' → reenviar a Chatwoot ────
+        # ── CASO 3: modo 'humano' → reenviar a la conversación existente ──────
         else:
             print("💬 Caso 3: modo humano, reenviando a conversación existente en Chatwoot...")
             db.crear_mensaje(registro["rmsgt_id"], texto, username)
 
             conversation_id = registro.get("rcvs_chatwoot_conversation_id")
-            if not conversation_id:
-                print("❌ No hay conversation_id guardado, no se puede reenviar.")
+            source_id       = registro.get("rcvs_chatwoot_source_id")
+
+            if not conversation_id or not source_id:
+                print("❌ Faltan conversation_id o source_id en BD.")
                 return Response(status_code=status.HTTP_200_OK)
 
-            # Crear una nueva sesión de contacto para poder enviar el mensaje
-            source_id, _ = await cw.crear_contacto(
-                nombre=username,
-                identificador=chat_id,
-            )
-
+            # Usar el source_id original — el mismo con el que se creó la conversación
             await cw.enviar_mensaje(source_id, conversation_id, texto)
             print(f"✅ Mensaje reenviado a conversación {conversation_id}")
 

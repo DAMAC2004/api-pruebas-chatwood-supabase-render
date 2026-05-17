@@ -1,14 +1,5 @@
 import httpx
-from core.config import (
-    CHATWOOT_BASE_URL,
-    CHATWOOT_INBOX_ID,
-)
-
-# ── Client APIs de Chatwoot ───────────────────────────────────────────────────
-# Estas APIs usan el inbox_identifier en la URL, NO el api_access_token.
-# Ruta base: /public/api/v1/inboxes/{inbox_identifier}/...
-# El CHATWOOT_INBOX_ID aquí es el inbox_identifier del canal API (string alfanumérico
-# que se obtiene en Chatwoot → Settings → Inboxes → tu inbox → Configuration).
+from core.config import CHATWOOT_BASE_URL, CHATWOOT_INBOX_ID
 
 HEADERS = {"Content-Type": "application/json"}
 BASE = f"{CHATWOOT_BASE_URL}/public/api/v1/inboxes/{CHATWOOT_INBOX_ID}"
@@ -16,17 +7,13 @@ BASE = f"{CHATWOOT_BASE_URL}/public/api/v1/inboxes/{CHATWOOT_INBOX_ID}"
 
 async def crear_contacto(nombre: str, identificador: str) -> tuple[str, str]:
     """
-    Paso 1: Crea el contacto en el inbox API.
-    Endpoint: POST /public/api/v1/inboxes/{inbox_identifier}/contacts
-
+    Crea el contacto en el inbox API.
     Retorna (source_id, pubsub_token).
-    El source_id se usa como contact_identifier en los siguientes pasos.
+    El source_id es el identificador de sesión — debe guardarse para
+    enviar mensajes a la conversación que se cree con esta sesión.
     """
     url = f"{BASE}/contacts"
-    payload = {
-        "name": nombre,
-        "identifier": identificador,
-    }
+    payload = {"name": nombre, "identifier": identificador}
 
     async with httpx.AsyncClient() as client:
         response = await client.post(url, json=payload, headers=HEADERS, timeout=10)
@@ -38,9 +25,7 @@ async def crear_contacto(nombre: str, identificador: str) -> tuple[str, str]:
 
 async def crear_conversacion(source_id: str) -> int:
     """
-    Paso 2: Crea la conversación para el contacto.
-    Endpoint: POST /public/api/v1/inboxes/{inbox_identifier}/contacts/{contact_identifier}/conversations
-
+    Crea la conversación para el contacto identificado por source_id.
     Retorna el conversation_id.
     """
     url = f"{BASE}/contacts/{source_id}/conversations"
@@ -55,10 +40,9 @@ async def crear_conversacion(source_id: str) -> int:
 
 async def enviar_mensaje(source_id: str, conversation_id: int, contenido: str) -> dict:
     """
-    Paso 3: Envía el mensaje del usuario a la conversación.
-    Endpoint: POST /public/api/v1/inboxes/{inbox_identifier}/contacts/{contact_identifier}/conversations/{conversation_id}/messages
-
-    El agente lo verá en el dashboard de Chatwoot como mensaje entrante.
+    Envía un mensaje a la conversación.
+    IMPORTANTE: el source_id debe ser el mismo con el que se creó
+    la conversación. Un source_id diferente da 404.
     """
     url = f"{BASE}/contacts/{source_id}/conversations/{conversation_id}/messages"
     payload = {"content": contenido}
@@ -74,15 +58,10 @@ async def escalar_a_chatwoot(
     chat_id: str,
     username: str,
     mensaje_actual: str,
-) -> int:
+) -> tuple[int, str]:
     """
-    Flujo completo de escalado usando las Client APIs de Chatwoot:
-
-      1. POST /contacts                          → obtiene source_id
-      2. POST /contacts/{source_id}/conversations → obtiene conversation_id
-      3. POST /contacts/{source_id}/conversations/{id}/messages → envía mensaje
-
-    Retorna el conversation_id de Chatwoot.
+    Flujo completo de escalado. Retorna (conversation_id, source_id).
+    Ambos deben guardarse en BD para usarlos en mensajes posteriores.
     """
     print(f"🚀 Escalando a Chatwoot | chat_id: {chat_id} | usuario: {username}")
 
@@ -95,16 +74,4 @@ async def escalar_a_chatwoot(
     await enviar_mensaje(source_id, conversation_id, mensaje_actual)
     print(f"✅ Mensaje enviado a conversación {conversation_id}")
 
-    return conversation_id
-
-
-async def enviar_mensaje_a_conversacion_existente(
-    source_id: str,
-    conversation_id: int,
-    contenido: str,
-) -> dict:
-    """
-    Envía un mensaje a una conversación que ya existe en Chatwoot.
-    Se usa cuando el usuario sigue mandando mensajes después del escalado.
-    """
-    return await enviar_mensaje(source_id, conversation_id, contenido)
+    return conversation_id, source_id
