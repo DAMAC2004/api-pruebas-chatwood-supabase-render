@@ -1,8 +1,8 @@
 import os
-from dotenv import load_dotenv
 from supabase import create_client, Client
 
-load_dotenv()
+# Las variables de entorno se configuran directamente en Render.
+# No se usa .env en producción.
 
 # ── Supabase ──────────────────────────────────────────────────────────────────
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
