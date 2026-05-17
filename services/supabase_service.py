@@ -18,10 +18,10 @@ def obtener_registro(chat_id: str) -> dict | None:
         supabase.table("registro_mensaje_telegram")
         .select("*")
         .eq("rmsgt_id_telegram_cvs", chat_id)
-        .single()
+        .limit(1)
         .execute()
     )
-    return response.data
+    return response.data[0] if response.data else None
 
 
 def crear_registro_telegram(chat_id: str) -> dict:
