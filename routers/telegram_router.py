@@ -77,20 +77,20 @@ async def telegram_webhook(request: Request):
             )
 
         # ── CASO 3: modo 'humano' → reenviar a la conversación existente ──────
-        else:
-            print("💬 Caso 3: modo humano, reenviando a conversación existente en Chatwoot...")
-            db.crear_mensaje(registro["rmsgt_id"], texto, username)
+        
+        print("💬 reenviando a conversación existente en Chatwoot...")
+        db.crear_mensaje(registro["rmsgt_id"], texto, username)
 
-            conversation_id = registro.get("rcvs_chatwoot_conversation_id")
-            source_id       = registro.get("rcvs_chatwoot_source_id")
+        conversation_id = registro.get("rcvs_chatwoot_conversation_id")
+        source_id       = registro.get("rcvs_chatwoot_source_id")
 
-            if not conversation_id or not source_id:
-                print("❌ Faltan conversation_id o source_id en BD.")
-                return Response(status_code=status.HTTP_200_OK)
+        if not conversation_id or not source_id:
+            print("❌ Faltan conversation_id o source_id en BD.")
+            return Response(status_code=status.HTTP_200_OK)
 
-            # Usar el source_id original — el mismo con el que se creó la conversación
-            await cw.enviar_mensaje(source_id, conversation_id, texto)
-            print(f"✅ Mensaje reenviado a conversación {conversation_id}")
+        # Usar el source_id original — el mismo con el que se creó la conversación
+        await cw.enviar_mensaje(source_id, conversation_id, texto)
+        print(f"✅ Mensaje reenviado a conversación {conversation_id}")
 
     except Exception as e:
         print(f"❌ Error en webhook de Telegram: {e}")
