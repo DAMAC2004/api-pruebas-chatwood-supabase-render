@@ -70,6 +70,38 @@ def actualizar_modo_bot(chat_id: str) -> dict | None:
     return response.data[0] if response.data else None
 
 
+def guardar_ids_chatwoot(chat_id: str, conversation_id: int, source_id: str) -> dict | None:
+    """
+    Guarda los ids de Chatwoot (conversation_id y source_id) en el registro
+    asociado a `chat_id` sin modificar el campo `rmsgt_id_modo`.
+    Retorna el registro actualizado o None si no existe.
+    """
+    response = (
+        supabase.table("registro_mensaje_telegram")
+        .update({
+            "rcvs_chatwoot_conversation_id": conversation_id,
+            "rcvs_chatwoot_source_id": source_id,
+        })
+        .eq("rmsgt_id_telegram_cvs", chat_id)
+        .execute()
+    )
+    return response.data[0] if response.data else None
+
+
+def set_modo_humano(chat_id: str) -> dict | None:
+    """
+    Actualiza solamente el campo `rmsgt_id_modo` a 'humano' para el registro
+    identificado por `chat_id`.
+    """
+    response = (
+        supabase.table("registro_mensaje_telegram")
+        .update({"rmsgt_id_modo": "humano"})
+        .eq("rmsgt_id_telegram_cvs", chat_id)
+        .execute()
+    )
+    return response.data[0] if response.data else None
+
+
 # ── Tabla: registro_conversacion ──────────────────────────────────────────────
 
 def crear_mensaje(rmsgt_id: int, mensaje: str, quien: str) -> dict:

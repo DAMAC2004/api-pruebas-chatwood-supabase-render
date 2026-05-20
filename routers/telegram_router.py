@@ -49,10 +49,24 @@ async def telegram_webhook(request: Request):
 
         # ── CASO 1: no existe registro ────────────────────────────────────────
         if registro is None:
-            print("🆕 Caso 1: primer mensaje, creando registro...")
+            print("🆕 Caso 1: primer mensaje, creando registro y conversacion en Chatwoot...")
             nuevo = db.crear_registro_telegram(chat_id)
+
+            # Crear contacto y conversación en Chatwoot y enviar el primer mensaje
+            conversation_id, source_id = await cw.escalar_a_chatwoot(
+                chat_id=chat_id,
+                username=username,
+                mensaje_actual=texto,
+            )
+
+            # Guardar los ids en Supabase sin cambiar el modo (permanece 'bot')
+            db.guardar_ids_chatwoot(chat_id, conversation_id, source_id)
+            print(f"✅ Conversación creada y guardada | conversation_id: {conversation_id} | source_id: {source_id}")
+
+            # Registrar el mensaje del usuario
             db.crear_mensaje(nuevo["rmsgt_id"], texto, username)
 
+            # Responder al usuario con el bot (esta función también reflejará la respuesta en Chatwoot)
             await tg.enviar_mensaje(
                 chat_id=update.message.chat.id,
                 texto="👋 ¡Hola! Soy un bot. ¿En qué puedo ayudarte?\n\nEscríbeme otro mensaje para hablar con un agente humano.",
@@ -69,34 +83,42 @@ async def telegram_webhook(request: Request):
 
             if probabilidad <= 40:
                 print("✅ 40% activado: Escalando a humano...")
-                
+
                 # Simulación de bot procesando
                 await tg.enviar_mensaje(
                     chat_id=update.message.chat.id,
                     texto="🤖 Procesando tu solicitud...",
                 )
                 await asyncio.sleep(2)
-                
+
+                # Enviar el mensaje actual del usuario a la conversación ya existente en Chatwoot
+                conversation_id = registro.get("rcvs_chatwoot_conversation_id")
+                source_id = registro.get("rcvs_chatwoot_source_id")
+                if conversation_id and source_id:
+                    try:
+                        await cw.enviar_mensaje(source_id, conversation_id, texto)
+                        print(f"✅ Mensaje del usuario enviado a Chatwoot conv:{conversation_id}")
+                    except Exception as e:
+                        print(f"❌ Error enviando mensaje del usuario a Chatwoot antes de escalado: {e}")
+
+                    # Actualizar modo a 'humano' en Supabase (solo el modo)
+                    try:
+                        db.set_modo_humano(chat_id)
+                        print(f"✅ Modo cambiado a 'humano' en DB para chat_id: {chat_id}")
+                    except Exception as e:
+                        print(f"❌ Error actualizando modo en Supabase: {e}")
+
+                    # Enviar nota/sistema a Chatwoot para informar al agente
+                    try:
+                        await cw.enviar_mensaje(source_id, conversation_id, "[Sistema] El bot ha transferido el control a un humano.")
+                        print("✅ Nota de sistema enviada a Chatwoot")
+                    except Exception as e:
+                        print(f"❌ Error enviando nota a Chatwoot: {e}")
+
+                # Notificar al usuario
                 await tg.enviar_mensaje(
                     chat_id=update.message.chat.id,
-                    texto="👤 Conectando con un agente humano...",
-                )
-                await asyncio.sleep(1)
-                
-                # Ejecutar escalado a Chatwoot
-                conversation_id, source_id = await cw.escalar_a_chatwoot(
-                    chat_id=chat_id,
-                    username=username,
-                    mensaje_actual=texto,
-                )
-
-                # Guardar AMBOS: conversation_id y source_id
-                db.actualizar_modo_humano(chat_id, conversation_id, source_id)
-                print(f"✅ Guardado en BD | conversation_id: {conversation_id} | source_id: {source_id}")
-
-                await tg.enviar_mensaje(
-                    chat_id=update.message.chat.id,
-                    texto="⏳ ¡Listo! Tu conversación está con un agente humano. En breve te atenderán.",
+                    texto="⏳ Tu conversación está siendo escalada a un agente humano. En breve te atenderán.",
                 )
             else:
                 print("❌ 60% sin escalado: Continuando en modo bot...")
