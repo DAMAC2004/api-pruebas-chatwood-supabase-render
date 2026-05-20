@@ -56,6 +56,20 @@ def actualizar_modo_humano(
     return response.data[0]
 
 
+def actualizar_modo_bot(chat_id: str) -> dict | None:
+    """
+    Cambia el modo a 'bot' para el registro identificado por `chat_id`.
+    Retorna el registro actualizado o None si no se encontró ninguno.
+    """
+    response = (
+        supabase.table("registro_mensaje_telegram")
+        .update({"rmsgt_id_modo": "bot"})
+        .eq("rmsgt_id_telegram_cvs", chat_id)
+        .execute()
+    )
+    return response.data[0] if response.data else None
+
+
 # ── Tabla: registro_conversacion ──────────────────────────────────────────────
 
 def crear_mensaje(rmsgt_id: int, mensaje: str, quien: str) -> dict:

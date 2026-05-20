@@ -27,6 +27,45 @@ async def chatwoot_webhook(request: Request):
 
         data = ChatwootWebhookPayload(**payload)
 
+        # ── Manejo de resolución de conversación ─────────────────────────────
+        if data.event in ("conversation_resolved", "conversation_updated"):
+            # Si es conversation_updated, validar que el status sea 'resolved'
+            if data.event == "conversation_updated":
+                conv_status = None
+                try:
+                    conv_status = payload.get("conversation", {}).get("status")
+                except Exception:
+                    conv_status = None
+
+                if conv_status != "resolved":
+                    print(f"⚠️  Evento 'conversation_updated' con status '{conv_status}', ignorado.")
+                    return Response(status_code=status.HTTP_200_OK)
+
+            # Extraer chat_id desde el payload
+            chat_id = _extraer_chat_id_de_payload(payload)
+            if not chat_id:
+                print("❌ No se pudo obtener el chat_id del payload de Chatwoot para resolución.")
+                return Response(status_code=status.HTTP_200_OK)
+
+            # Actualizar modo en Supabase: rmsgt_id_modo -> 'bot'
+            try:
+                updated = db.actualizar_modo_bot(chat_id)
+                print(f"✅ Registro actualizado a modo 'bot' en Supabase para chat_id: {chat_id} | result: {updated}")
+            except Exception as e:
+                print(f"❌ Error actualizando Supabase al modo 'bot': {e}")
+
+            # Notificar al usuario en Telegram
+            try:
+                await tg.enviar_mensaje(
+                    chat_id=chat_id,
+                    texto="La sesión con el agente ha finalizado. El bot está activo de nuevo.",
+                )
+                print(f"✅ Notificación enviada a Telegram chat_id: {chat_id}")
+            except Exception as e:
+                print(f"❌ Error enviando notificación Telegram: {e}")
+
+            return Response(status_code=status.HTTP_200_OK)
+
         # Solo procesamos mensajes nuevos tipo 'outgoing' del agente
         if data.event != "message_created":
             print(f"⚠️  Evento '{data.event}' ignorado.")
@@ -45,8 +84,7 @@ async def chatwoot_webhook(request: Request):
         # ── Buscar el chat_id de Telegram correspondiente ─────────────────────
         # Chatwoot usa el 'identifier' del contacto, que nosotros seteamos como chat_id.
         # Lo recuperamos desde el payload completo si está disponible.
-        raw = await request.json() if False else payload   # ya lo tenemos en payload
-        chat_id = _extraer_chat_id_de_payload(raw)
+        chat_id = _extraer_chat_id_de_payload(payload)
 
         if not chat_id:
             print("❌ No se pudo obtener el chat_id del payload de Chatwoot.")
@@ -82,6 +120,18 @@ def _extraer_chat_id_de_payload(payload: dict) -> str | None:
     try:
         # Intento 2: sender.identifier
         return payload["sender"]["identifier"]
+    except (KeyError, TypeError):
+        pass
+
+    try:
+        # Intento 3: contact.identifier
+        return payload["contact"]["identifier"]
+    except (KeyError, TypeError):
+        pass
+
+    try:
+        # Intento 4: conversation.contact.identifier
+        return payload["conversation"]["contact"]["identifier"]
     except (KeyError, TypeError):
         pass
 

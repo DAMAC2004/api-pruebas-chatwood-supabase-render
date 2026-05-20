@@ -3,6 +3,8 @@ from models.schemas import TelegramUpdate
 import services.supabase_service as db
 import services.telegram_service as tg
 import services.chatwoot_service as cw
+import random
+import asyncio
 
 router = APIRouter(tags=["Telegram"])
 
@@ -56,41 +58,68 @@ async def telegram_webhook(request: Request):
                 texto="👋 ¡Hola! Soy un bot. ¿En qué puedo ayudarte?\n\nEscríbeme otro mensaje para hablar con un agente humano.",
             )
 
-        # ── CASO 2: registro en modo 'bot' → escalar ──────────────────────────
+        # ── CASO 2: registro en modo 'bot' → probabilidad de escalado ────────────
         elif registro["rmsgt_id_modo"] == "bot":
-            print("🔁 Caso 2: modo bot, escalando a humano...")
+            print("🔁 Caso 2: modo bot, evaluando escalado...")
             db.crear_mensaje(registro["rmsgt_id"], texto, username)
 
-            conversation_id, source_id = await cw.escalar_a_chatwoot(
-                chat_id=chat_id,
-                username=username,
-                mensaje_actual=texto,
-            )
+            # Generar probabilidad aleatoria: 1-100
+            probabilidad = random.randint(1, 100)
+            print(f"🎲 Probabilidad generada: {probabilidad}")
 
-            # Guardar AMBOS: conversation_id y source_id
-            db.actualizar_modo_humano(chat_id, conversation_id, source_id)
-            print(f"✅ Guardado en BD | conversation_id: {conversation_id} | source_id: {source_id}")
+            if probabilidad <= 40:
+                print("✅ 40% activado: Escalando a humano...")
+                
+                # Simulación de bot procesando
+                await tg.enviar_mensaje(
+                    chat_id=update.message.chat.id,
+                    texto="🤖 Procesando tu solicitud...",
+                )
+                await asyncio.sleep(2)
+                
+                await tg.enviar_mensaje(
+                    chat_id=update.message.chat.id,
+                    texto="👤 Conectando con un agente humano...",
+                )
+                await asyncio.sleep(1)
+                
+                # Ejecutar escalado a Chatwoot
+                conversation_id, source_id = await cw.escalar_a_chatwoot(
+                    chat_id=chat_id,
+                    username=username,
+                    mensaje_actual=texto,
+                )
 
-            await tg.enviar_mensaje(
-                chat_id=update.message.chat.id,
-                texto="⏳ Tu conversación está siendo escalada a un agente humano. En breve te atenderán.",
-            )
+                # Guardar AMBOS: conversation_id y source_id
+                db.actualizar_modo_humano(chat_id, conversation_id, source_id)
+                print(f"✅ Guardado en BD | conversation_id: {conversation_id} | source_id: {source_id}")
+
+                await tg.enviar_mensaje(
+                    chat_id=update.message.chat.id,
+                    texto="⏳ ¡Listo! Tu conversación está con un agente humano. En breve te atenderán.",
+                )
+            else:
+                print("❌ 60% sin escalado: Continuando en modo bot...")
+                await tg.enviar_mensaje(
+                    chat_id=update.message.chat.id,
+                    texto="🤖 Gracias por tu mensaje. Aunque por ahora sigo siendo un bot, tu mensaje ha sido registrado. Intenta escribir de nuevo.",
+                )
 
         # ── CASO 3: modo 'humano' → reenviar a la conversación existente ──────
-        
-        print("💬 reenviando a conversación existente en Chatwoot...")
-        db.crear_mensaje(registro["rmsgt_id"], texto, username)
+        else:
+            print("💬 reenviando a conversación existente en Chatwoot...")
+            db.crear_mensaje(registro["rmsgt_id"], texto, username)
 
-        conversation_id = registro.get("rcvs_chatwoot_conversation_id")
-        source_id       = registro.get("rcvs_chatwoot_source_id")
+            conversation_id = registro.get("rcvs_chatwoot_conversation_id")
+            source_id       = registro.get("rcvs_chatwoot_source_id")
 
-        if not conversation_id or not source_id:
-            print("❌ Faltan conversation_id o source_id en BD.")
-            return Response(status_code=status.HTTP_200_OK)
+            if not conversation_id or not source_id:
+                print("❌ Faltan conversation_id o source_id en BD.")
+                return Response(status_code=status.HTTP_200_OK)
 
-        # Usar el source_id original — el mismo con el que se creó la conversación
-        await cw.enviar_mensaje(source_id, conversation_id, texto)
-        print(f"✅ Mensaje reenviado a conversación {conversation_id}")
+            # Usar el source_id original — el mismo con el que se creó la conversación
+            await cw.enviar_mensaje(source_id, conversation_id, texto)
+            print(f"✅ Mensaje reenviado a conversación {conversation_id}")
 
     except Exception as e:
         print(f"❌ Error en webhook de Telegram: {e}")
